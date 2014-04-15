@@ -1,0 +1,626 @@
+<!doctype html>
+
+<!-- 
+Monash Web Surfer: web surface visualisation utility (c) Monash University
+ - Provide model directory on URL, eg: index.html?model=mymodel
+ - Will attempt to load mymodel/model.tok listing objects to load, description and parameters
+ - Currently using THREE.js revision 52, will need some reworking if we want to update to the latest version
+ - THREEx extensions provide optional additional features but can be removed
+ - OBJLoader3.js is very slightly modified from original to provide additional parameter in callback
+ - TrackballControls.js modified to provide primitive touchscreen support
+
+ Updates, O.K: Dec 2013 / Jan 2014:
+  - Views menu added to select additional views defined in model.tok
+  - Dropbdown menu interface, touchscreen compatible
+  - OBJLoader loaded callback passes id directly so we don't have to iterate the list
+  - Fixed object intersection to use the canvas area rather than entire window for calculations to improve accuracy
+  - Removed jquery as only used for the object labels, updated label display to work without it and fixed timeout
+  - Modified animation loop to display only when camera changed, camera state stored as string and compared
+  - Minor adjustments to loading status and lighting, initial zoom set to slightly wider angle
+-->
+
+<html>
+<head>
+  <title>Monash Web Surfer - surface visualisation (O.L. Kaluza &amp; D.G. Barnes</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+  
+  <script src="lib/three.min.js"></script>
+  <script src="lib/Detector.js"></script>
+  <script src="lib/OBJLoader3.js"></script>
+  <script src="lib/THREEx.screenshot.js"></script>
+  <script src="lib/THREEx.FullScreen.js"></script>
+  <script src="lib/THREEx.WindowResize.js"></script>
+  <script src="lib/TrackballControls.js"></script>
+
+  <style type="text/css">
+  body {
+    padding   : 0;
+    margin    : 0;
+    color    : #222;
+    background-color: #f9f9f9;
+    font-family  : arial;
+    font-size  : 100%;
+    width  : 100%;
+    height  : 100%;
+    overflow  : hidden;
+  }
+
+  #heading {
+    background-color: #aaa;
+    width      : 100%;
+    margin     : 0;
+  }
+
+  #title, #status {
+    padding    : 5px;
+    margin     : 0px 5px;
+  }
+
+  #status {
+    color       : #f55;
+    font-weight : bold;
+    float: left;
+  }
+
+  .dropdown {
+    float: right;
+    border-color: #555;
+    border-style: groove;
+    border-width: 1px;
+    border-radius: 4px;
+    padding: 4px;
+    margin: 1px;
+    font-size: 85%;
+    background-color: #bbb;
+  }
+
+  .menu {
+    display: none; 
+    position: absolute;
+    right: 2px;
+    top: 28px;
+    overflow: hidden; 
+    text-align: left;
+    background-color: #aaa;
+    border-color: #555;
+    border-style: groove;
+    border-width: 1px;
+    padding: 5px;
+    font-size: 85%;
+  }
+
+  .dropdown:hover {background-color: #ddc;}
+  .dropdown.active {background-color: #ddc;}
+
+  .menu input,label { 
+    padding: 5px 0px;
+    margin: 5px;
+    vertical-align: middle; 
+  }
+
+  .menu.active {display: block;}
+
+  #label {
+    position: absolute;
+    top: 15%;
+    background-color: #dc0;
+    display: none;
+    border-color: #555;
+    border-style: groove;
+    border-width: 1px;
+    padding: 4px;
+  }
+
+  #footing {
+    position : absolute;
+    background-color: #aaa;
+    bottom : 0;
+    width : 100%;
+    padding : 5px;
+    text-align : left;
+    font-size: 85%;
+    margin     : 0;
+    overflow  : hidden;
+  }
+
+/* Hide footer on phone screen */
+@media (max-width: 700px) {
+  #footing {display: none;}
+}
+
+  </style>
+
+  </head>
+
+<body>
+
+<script type="text/javascript">
+
+  function getUrlVars() {
+    var vars = {};
+    var parts = window.location.href.replace(/[?&]+([^=&]+)=([^&]*)/gi, function(m,key,value) {
+        vars[key] = value;
+    });
+    return vars;
+  }
+
+  var model = getUrlVars()["model"];
+  var model_tok = model + "/model.tok";
+
+  function makeStruct(names) {
+    var names = names.split(' ');
+    var count = names.length;
+    function constructor() {
+      for (var i = 0; i < count; i++) {
+        this[names[i]] = arguments[i];
+      }
+    }
+    return constructor;
+  }
+
+  // get global vars in place before custom "model.js" loaded...
+  var ObjInfo = makeStruct("name groups filename r g b a");
+  var objs = [];
+  var GrpInfo = makeStruct("name id init");
+  var grps = [];
+  var views = [];
+  var title_frag = "WebSurfer";
+  var footer_txt = "WebSurfer";
+  var PosInfo = makeStruct("x y z");
+  var background = new PosInfo(0.976, 0.976, 0.976);
+  //OK: Reduced ambient and increased directional light slightly
+  // for greater contrast and highlights
+  var ambientLight = new PosInfo(0.25,0.25,0.25);
+  var headLight = new PosInfo(0.67,0.67,0.67);
+  var prevcam = "";  //Save camera to detect if redraw required
+  var projector = new THREE.Projector();
+  var menu = null;
+</script>
+
+<div id="heading"> 
+  <div class="dropdown" onclick="toggleMenu(this);">Groups
+    <div class="menu" onclick="event.stopPropagation();" id="groups"></div>
+  </div>
+  <div class="dropdown" onclick="toggleMenu(this);">Views
+    <div class="menu" onclick="event.stopPropagation();" id="views"></div>
+  </div>
+  <div id="title">WebSurfer (initialising, please wait ...)</div>
+</div>
+<div id="status"></div>
+<div id="label" class="label">(no selection)</div>
+<div id="container"></div>
+<div id="footing">WebSurfer (initialising, please wait ...)</div>
+
+<script type="text/javascript">
+  var scene, renderer, camera, controls;
+  var headlight;
+  var obj;
+  var ref_obj = [];
+  var plane;
+
+  var tokFile = new XMLHttpRequest();
+  tokFile.overrideMimeType('text/plain');
+  tokFile.onreadystatechange = function() {
+    if (tokFile.readyState == 4) {  // Makes sure the document is ready to parse.
+      if (tokFile.status == 200 || tokFile.status == 0) {  // Makes sure it's found the file.
+        parseTokFile(tokFile.responseText);
+        document.getElementById("status").innerHTML = "(loading ... )";
+        document.getElementById("footing").innerHTML = footer_txt;
+        initGroups();
+        initViews();
+        init();
+      }
+    }
+  }
+  tokFile.open("GET", model_tok, true);
+  tokFile.send(null);
+
+  function parseTuple(x_str,y_str,z_str, as_array) {
+      var x = parseFloat(x_str);
+      var y = parseFloat(y_str);
+      var z = parseFloat(z_str);
+      if (as_array)
+        return [x,y,z];
+      else
+        return (new PosInfo(x,y,z));
+  }
+
+  // parse the token file
+  function parseTokFile(textchunk) {
+    lines = textchunk.split("\n");
+    for (var i = 0; i < lines.length; i++) {
+      bits = lines[i].split(":");
+
+      if (bits[0] == "title_frag") {
+          // paste any remainder of line split on ":" back together
+          res = bits[1];
+          for (var k = 2; k < bits.length; k++) {
+            res = res + ":" + bits[k];
+          }
+          title_frag = res;
+      } else if (bits[0] == "footer_txt") {
+          // paste any remainder of line split on ":" back together
+          res = bits[1];
+          for (var k = 2; k < bits.length; k++) {
+            res = res + ":" + bits[k];
+          }
+          footer_txt = res;
+
+      } else if (bits[0] == "camera_position") {
+         views.push({"name" : "Default", "position" : parseTuple(bits[1], bits[2], bits[3], true)});
+      } else if (bits[0] == "camera_lookat") {
+         if (views.length > 0) views[0].lookat = parseTuple(bits[1], bits[2], bits[3], true);
+      } else if (bits[0] == "camera_up") {
+         if (views.length > 0) views[0].up = parseTuple(bits[1], bits[2], bits[3], true);
+      } else if (bits[0] == "background") {
+          background = parseTuple(bits[1], bits[2], bits[3]);
+      } else if (bits[0] == "ambientLight") {
+          ambientLight = parseTuple(bits[1], bits[2], bits[3]);
+      } else if (bits[0] == "headLight") {
+        headLight = parseTuple(bits[1], bits[2], bits[3]);
+      } else if (bits[0] == "views") {
+        views.push({"name" : bits[1], 
+                    "position" : JSON.parse("[" + bits[2] + "]"),
+                    "lookat" : JSON.parse("[" + bits[3] + "]"),
+                    "up" : JSON.parse("[" + bits[4] + "]")
+                   });
+      } else if (bits[0] == "grps") {
+        grps.push(new GrpInfo(bits[1], bits[2], bits[3] == "true" || parseInt(bits[3]) == 1));
+      } else if (bits[0] == "objs") {
+        objs.push(new ObjInfo(bits[1], bits[2], model + "/" + bits[3], bits[4], bits[5], bits[6], bits[7]));
+      }
+    }
+  }
+
+  // init the group checkboxes
+  function initGroups() {
+    for (var i = 0; i < grps.length; i++) {
+      addMenuItem("groups", "checkbox", grps[i].id, grps[i].name, grps[i].name, grps[i].init, 
+                  function() {applyCheckboxState(); render();});
+    }
+  }
+
+  // init camera view selection
+  function initViews() {
+    for (var i = 0; i < views.length; i++) {
+      addMenuItem("views", "radio", "view_" + i, "views", views[i].name, i==0, Function("setCamera(" + i + ");"));
+    }
+  }
+
+  function addMenuItem(parentid, type, id, name, text, checked, onclick) {
+    var container = document.getElementById(parentid);
+    var item = document.createElement("input");
+    item.id = id;
+    item.type = type;
+    item.name = name;
+    item.onclick = onclick;
+    item.checked = checked;
+    //Create the label
+    var label = document.createElement("label");
+    label.appendChild(label.ownerDocument.createTextNode(text));
+    //Associate with input
+    label.setAttribute("for", item.id);
+    //Add controls
+    if (container.childNodes.length > 0)
+      container.appendChild(document.createElement("hr"));
+    container.appendChild(item);
+    container.appendChild(label);
+  }
+
+  // apply the checkbox state to the model
+  function applyCheckboxState() {
+    var i, j;
+    for (j = 0; j < grps.length; j++) {
+      var chkBox = document.getElementById(grps[j].id);
+      state = chkBox.checked;
+      for (i = 0; i < objs.length; i++) {
+        if (objs[i].groups == grps[j].id) {
+          ref_obj[i].visible = state;
+        }
+      }
+    }
+  }
+
+  // init the scene
+  function init() {
+    //Detect renderer
+    if ( Detector.webgl ) {
+      renderer = new THREE.WebGLRenderer({
+        antialias    : true,
+        preserveDrawingBuffer  : true  // to allow screenshot
+      });
+      //renderer.setClearColorHex( 0xf9f9f9, 1 );
+      var bgcol = new THREE.Color(0xf9f9f9);
+      bgcol.setRGB(background.x, background.y, background.z);
+      renderer.setClearColor(bgcol, 1);
+    } else {
+      renderer = new THREE.CanvasRenderer();
+    }
+    renderer.setSize( window.innerWidth, window.innerHeight );
+    document.getElementById('container').appendChild(renderer.domElement);
+    document.getElementById("title").innerHTML = title_frag;
+
+    //Create scene
+    scene = new THREE.Scene();
+
+    var fov = 40; //Modify this to adjust initial zoom level
+    camera = new THREE.PerspectiveCamera(fov, window.innerWidth / window.innerHeight, 1, 10000);
+
+    //Camera contol
+    var container = document.getElementById("container");
+    controls = new THREE.TrackballControls(camera, container);
+    controls.rotateSpeed = 1.0;
+    controls.zoomSpeed = 1.2;
+    controls.panSpeed = 0.8;
+    controls.noZoom = false;
+    controls.noPan = false;
+    controls.staticMoving = true;
+    controls.dynamicDampingFactor = 0.3;
+    controls.keys = [ 65, 83, 68 ];
+
+    if (views.length == 0) {
+      //Default camera
+      views.push({"name" : "Default", 
+                  "position" : [0,0,1500],
+                  "lookat" : [0,0,0],
+                  "up" : [0,1,0]
+                 });
+    }
+
+    setCamera(0);
+    scene.add(camera);
+
+    //Scroll wheel events
+    window.addEventListener('DOMMouseScroll', mousewheel, false);
+    window.addEventListener('mousewheel', mousewheel, false);
+    //Redisplay on resize (clearing "prevcam" forces redraw)
+	  window.addEventListener('resize', function() {prevcam = "";}, false);
+    //Click to select object
+    container.addEventListener('click', onDocumentMouseDown, false );
+
+    //Window resize support
+    THREEx.WindowResize.bind(renderer, camera);
+    //'p' to make screenshot
+    THREEx.Screenshot.bindKey(renderer);
+    //'f' to go fullscreen where supported
+    if (THREEx.FullScreen.available())
+      THREEx.FullScreen.bindKey();
+
+    //Add objects to scene
+    var ambcol = new THREE.Color(0);
+    ambcol.setRGB(ambientLight.x, ambientLight.y, ambientLight.z);
+    var ambient = new THREE.AmbientLight( ambcol.getHex() );
+    scene.add(ambient);
+
+    var headcol = new THREE.Color(0);
+    headcol.setRGB(headLight.x, headLight.y, headLight.z);
+    headlight = new THREE.PointLight( headcol.getHex() );
+    headlight.position = camera.position;
+    scene.add(headlight);
+
+    var loader = new THREE.OBJLoader();
+    var nloaded = 0;
+    var nobjs = objs.length;
+
+    for (var i = 0; i < nobjs; i++) {
+      var callback = function(object, idx) {
+
+        object.children[0].material.color.setRGB(objs[idx].r, objs[idx].g, objs[idx].b);
+
+        if (objs[idx].a < 0.999) {
+          object.children[0].material.transparent = true;
+          object.children[0].material.opacity = objs[idx].a;
+        } else {
+          object.children[0].material.transparent = false;
+          object.children[0].material.opacity = 1.0;
+        }
+        //  object.children[0].material.side = THREE.DoubleSide;
+
+        //ref_obj[idx] = object; // save ref for later use, e.g. model tree switch in/out of render
+          
+        // FOLLOWING REQUIRED FOR OBJECT INTERSECT TO WORK !!!
+        // http://stackoverflow.com/questions/11205784/three-js-using-projector-and-ray-to-selected-a-vertex
+        object.children[0].geometry.computeFaceNormals();
+        var geometry = object.children[0].geometry;
+        //THREE.GeometryUtils.center(geometry);
+        //var material = new THREE.MeshLambertMaterial({color: 0xffaa77, shading: THREE.FlatShading, vertexColors: THREE.VertexColors });
+
+        ref_obj[idx] = new THREE.Mesh(geometry, object.children[0].material);
+
+        scene.add( ref_obj[idx] );
+
+        nloaded += 1;
+        if (nloaded == nobjs) {
+          window.obj = ref_obj[idx];
+          document.getElementById("status").style.display = "none";
+          applyCheckboxState();
+
+          animate();
+        } else {
+          document.getElementById("status").innerHTML = "(loaded " + nloaded + "/" + nobjs + " ... )";
+        }  
+      }
+
+      //Load the object, passing index so can be passed to callback
+      loader.load(objs[i].filename, callback, i);
+    }
+
+  }
+
+  function setCamera(view_id) {
+    var v = views[view_id];
+    // ensure camera.up is orthog to lookat-position
+    var dir = new THREE.Vector3(v.lookat[0] - v.position[0],
+                                v.lookat[1] - v.position[1],
+                                v.lookat[2] - v.position[2]);
+    /*var iup = new THREE.Vector3(v.up[0], v.up[1], v.up[2]);
+    if (iup.lengthSq() < 0.99) {
+      iup.set(0,1,0);
+    }
+    var rgt = new THREE.Vector3();
+    rgt.cross(dir, iup);
+    iup.cross(rgt, dir);*/
+
+    //Add camera
+    camera.position.set(v.position[0], v.position[1], v.position[2]);
+    camera.up.set(v.up[0], v.up[1], v.up[2]);
+    //camera.up.set(iup[0], iup[1], iup[2]);
+
+    // N.B. point to look at / rotate about is PER MODEL
+    controls.target.set(v.lookat[0], v.lookat[1], v.lookat[2]);
+  }
+
+  //Animation loop
+  function animate() {
+    //Request animation loop
+    requestAnimationFrame( animate );
+    //Update camera
+    controls.update();
+    //String representation of view parameters
+    var cam = JSON.stringify(camera.position) + camera.fov;
+    //Compare to cached camera string and refresh only when changed
+    //(This makes it easier on the CPU usage)
+    if (prevcam.length != cam.length || prevcam != cam) {
+      //Update display
+      headlight.position = (camera.position);
+
+      render();
+      prevcam = JSON.stringify(camera.position) + camera.fov;
+    }
+  }
+
+  //Render the scene
+  function render() {
+    renderer.render( scene, camera );
+  }
+
+  function mousewheel(event) {
+    //Cross-bowser handling of eventdata 
+    var nDelta;
+    if (event.wheelDelta) //IE and Opera
+      nDelta= event.wheelDelta;
+    else if (event.detail)
+      nDelta= -event.detail; //Mozilla FireFox
+
+    //Normalise to single unit
+    var spin = nDelta > 0 ? 1 : -1;
+
+    var fovMAX = 160;
+    var fovMIN = 1;
+
+    camera.fov -= spin; // * 0.05;
+    camera.fov = Math.max( Math.min( camera.fov, fovMAX ), fovMIN );
+    camera.updateProjectionMatrix();
+  }
+
+  function toggleMenu(el) {
+    if (el.childNodes.length < 2) return;
+    var child = el.childNodes[1];
+    if (menu) {
+      var m = menu;
+      menu = null;
+      toggleMenu(m);
+      if (m == el) return;
+    }
+  
+    if (child.className == "menu") {
+      child.className += " active"
+      el.className += " active"
+      menu = el;
+    } else {
+      child.className = "menu"
+      el.className = "dropdown"
+      menu = null;
+    }
+  }
+
+  function onDocumentMouseDown( event ) {
+    //event.preventDefault();
+    //Get mouse coords relative to canvas
+    var x;
+    var y;
+    if (event.pageX || event.pageY) { 
+      x = event.pageX;
+      y = event.pageY;
+    }
+    else { 
+      x = event.clientX + document.body.scrollLeft + document.documentElement.scrollLeft; 
+      y = event.clientY + document.body.scrollTop + document.documentElement.scrollTop; 
+    } 
+    x -= renderer.domElement.offsetLeft;
+    y -= renderer.domElement.offsetTop;
+    //console.log(x, y, renderer.domElement.width, renderer.domElement.height);
+
+    var vector = new THREE.Vector3(
+        ( x / renderer.domElement.width ) * 2 - 1,
+      - ( y / renderer.domElement.height ) * 2 + 1,
+        1.0
+    );
+    
+    //console.log(vector.x, vector.y, vector.z);
+    projector.unprojectVector(vector, camera);
+
+    var ray = new THREE.Ray(camera.position, 
+                             vector.subSelf( camera.position ).normalize());
+    var intersects = ray.intersectObjects(ref_obj, true);
+
+//*
+    //This will only display the first intersected object
+    var found = false;
+    var found_id = -1;
+    if (intersects.length > 0) {
+      for (var z = 0; z < intersects.length && !found; z++) {
+        var z_id = intersects[z].object.id;
+        for (var x = 0; x < ref_obj.length && !found; x++) {
+          if (ref_obj[x].visible && ref_obj[x].id == z_id) {
+            found = true;
+            found_id = x;
+          }
+        }
+      }
+    }
+
+    if (found) {
+      //console.log("Clicked on ", objs[found_id].name);
+      var label = document.getElementById("label");
+      label.innerHTML = objs[found_id].name;
+      label.style.display = "inline";
+      if (label.timer) clearTimeout(label.timer);
+      label.timer = setTimeout(function() {label.style.display = 'none';}, 4000);
+    }
+/*/
+
+    //Modified to list all objects intersected at click position
+    for (var x = 0; x < ref_obj.length; x++)
+      objs[x].picked = false;
+
+    if (intersects.length > 0) {
+      for (var z = 0; z < intersects.length; z++) {
+        var z_id = intersects[z].object.id;
+        for (var x = 0; x < ref_obj.length; x++) {
+          if (ref_obj[x].visible && ref_obj[x].id == z_id) {
+            objs[x].picked = true;
+          }
+        }
+      }
+
+      var label = document.getElementById("label");
+      label.style.display = "none";
+      label.innerHTML = "";
+      for (var x = 0; x < ref_obj.length; x++) {
+        if (objs[x].picked) {
+          //console.log("Clicked on ", objs[x].name);
+          label.innerHTML += objs[x].name + "<br>";
+          label.style.display = "inline";
+        }
+      }
+      if (label.timer) clearTimeout(label.timer);
+      label.timer = setTimeout(function() {label.style.display = 'none';}, 4000);
+    }
+//*/
+  }
+
+</script>
+</body>
+</html>

@@ -1,0 +1,36 @@
+title_frag:<B>Figure 5:</B> 3D visualisation of skull bones and jaw musculature in <I>Dacelo novaeguineae</I>.
+footer_txt: This 3D figure is an appendix to Quayle et al., ``An Interactive Three Dimensional approach to Anatomical Description - The jaw musculature of the Australian Laughing Kookaburra (<I>Dacelo novaeguineae</I>).'' To use the model, left click to view the label for each structure, left click and drag to free rotate, right click and drag to pan, use scroll wheel to zoom. Toggle anatomy component groups using the checkboxes in the Groups menu. Switch viewpoint with the Views menu. Muscle labels (displayed on left click) are: 1 mDM <I>M. depressor mandibulae</I>, 2 mAMEp <I>M. adductor mandibulae externus profundus</I>, 3 mAMEs <I>M. adductor mandibulae externus superficialis</I>, 4 mAMErt <I>M. adductor mandibulae externus rostralis</I>, 5 mAMP <I>M. adductor mandibulae posterior</I>, 6 mPSTs <I>M. pseudotemporalis superficialis</I>, 7 mPSTp <I>M. pseudotemporalis profundus</I>, 8 mPTDma <I>M. pterygoideus dorsalis medialis anterior</I>, 9 mPTDmp <I>M. pterygoideus dorsalis medialis posterior</I>, 10 mPTDl <I>M. pterygoideus dorsalis lateralis</I>, 11 mPTVm <I>M. pterygoideus ventralis medialis</I>, 12 mPTVl pt1 <I>M. pterygoideus ventralis lateralis</I> Part 1, 13 mPTVl pt2 <I>M. pterygoideus ventralis lateralis</I> Part 2 and 14 mPTVl pt3 <I>M. pterygoideus ventralis lateralis</I> Part 3.
+pdffooter_txt: This 3D figure is an appendix to Quayle et al., ``An Interactive Three Dimensional approach to Anatomical Description - The jaw musculature of the Australian Laughing Kookaburra (<I>Dacelo novaeguineae</I>).'' If viewing from within Adobe Reader, click on the image to activate the 3D model. To use the model, click to view the label for each structure, left click and drag to free rotate, control left click and drag to pan, use scroll wheel to zoom. Select the "Toggle Model Tree" icon to show/hide individual components of the model. Right click on the component names in the "Model Tree" to make transparent. Muscle labels: 1 mDM <I>M.\ depressor mandibulae</I>, 2 mAMEp <I>M.\ adductor mandibulae externus profundus</I>, 3 mAMEs <I>M.\ adductor mandibulae externus superficialis</I>, 4 mAMErt <I>M.\ adductor mandibulae externus rostralis</I>, 5 mAMP <I>M.\ adductor mandibulae posterior</I>, 6 mPSTs <I>M.\ pseudotemporalis superficialis</I>, 7 mPSTp <I>M.\ pseudotemporalis profundus</I>, 8 mPTDma <I>M.\ pterygoideus dorsalis medialis anterior</I>, 9 mPTDmp <I>M.\ pterygoideus dorsalis medialis posterior</I>, 10 mPTDl <I>M.\ pterygoideus dorsalis lateralis</I>, 11 mPTVm <I>M.\ pterygoideus ventralis medialis</I>, 12 mPTVl pt1 <I>M.\ pterygoideus ventralis lateralis</I> Part 1, 13 mPTVl pt2 <I>M.\ pterygoideus ventralis lateralis</I> Part 2 and 14 mPTVl pt3 <I>M.\ pterygoideus ventralis lateralis</I> Part 3.
+camera_position:0:-180:0
+camera_lookat:-40:0:0
+camera_up:0:0:1
+views:Left lateral:0,-180,0:-40,0,0:0,0,1
+views:Right lateral:0,180,0:-40,0,0:0,0,1
+views:Anterior:-180,0,0:-40,0,0:0,0,1
+views:Posterior:180,0,0:-40,0,0:0,0,1
+views:Dorsal:0,0,240:-40,0,0:1,0,0
+views:Ventral:0,0,-240:-40,0,0:-1,0,0
+grps:Cranium:Z:true
+grps:Mandible:Y:true
+grps:Depressor muscle:a:true
+grps:Temporal muscles:b:true
+grps:Pseudotemporalis muscles:c:true
+grps:Dorsal Pterygoid muscles:d:true
+grps:Ventral Pterygoid muscles:e:true
+objs:Cranium:Z:Cranium-reduced-100k.obj:1.0:1.0:1.0:1.0
+objs:Mandible:Y:Mandible.obj:1.0:1.0:1.0:1.0
+objs:1 mDM:a:1. Depressor Mandibulae.obj:0.82:0.05:0.11:1.0
+objs:2 mAMEp:b:2. Adductor Mandibulae Externus profundus.obj:0.93:0.40:0.43:1.0
+objs:3 mAMEs:b:3. Adductor Mandibulae Externus superficialis.obj:0.76:0.49:0.48:1.0
+objs:4 mAMErt:b:4. Unnamed Temporal muscle.obj:0.70:0.29:0.30:1.0
+objs:5 mAMP:b:5. Adductor Mandibulae Posterior.obj:1.00:0.00:0.46:1.0
+objs:6 mPSTs:c:6. Pseudotemporalis superficialis.obj:0.91:0.43:0.46:1.0
+objs:7 mPSTp:c:7. Pseudotemporalis profundus.obj:0.87:0.64:0.67:1.0
+objs:8 mPTDma:d:8. Pterygoideus Dorsalis Medialis anterior.obj:0.89:0.56:0.76:1.0
+objs:9 mPTDmp:d:9. Pterygoideus Dorsalis Medialis posterior.obj:1.00:0.00:0.10:1.0
+objs:10 mPTDl:d:10. Pterygoideus Dorsalis Lateralis.obj:0.89:0.33:0.67:1.0
+objs:11 mPTVm:e:11. Pterygoideus Ventralis Medialis.obj:1.00:0.59:0.00:1.0
+objs:12 mPTVl pt1:e:12. Pterygoideus Ventralis lateralis.obj:0.91:0.47:0.25:1.0
+objs:13 mPTVl pt2:e:13. Pterygoideus Ventralis lateralis Part2.obj:0.86:0.58:0.36:1.0
+objs:14 mPTVl pt3:e:14. Pterygoideus Ventralis lateralis Part3.obj:0.78:0.49:0.32:1.0
+
