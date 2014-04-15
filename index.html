@@ -17,6 +17,12 @@ Monash Web Surfer: web surface visualisation utility (c) Monash University
   - Removed jquery as only used for the object labels, updated label display to work without it and fixed timeout
   - Modified animation loop to display only when camera changed, camera state stored as string and compared
   - Minor adjustments to loading status and lighting, initial zoom set to slightly wider angle
+
+ Updates, O.K: Apr 2014:
+  - Upgraded to Three.js v66
+  - New version of TrackballControls has support for touchscreen + wheel so stripped out our old code for this
+  - Warning info and confirm when WebGL not available as CanvasRenderer can be extremely slow
+  - Added background image display while loading, background.png in model directory
 -->
 
 <html>
@@ -37,13 +43,14 @@ Monash Web Surfer: web surface visualisation utility (c) Monash University
   body {
     padding   : 0;
     margin    : 0;
-    color    : #222;
+    color     : #222;
     background-color: #f9f9f9;
     font-family  : arial;
     font-size  : 100%;
-    width  : 100%;
-    height  : 100%;
     overflow  : hidden;
+    background-position: center; 
+    background-repeat: no-repeat; 
+    background-attachment:fixed;
   }
 
   #heading {
@@ -60,7 +67,8 @@ Monash Web Surfer: web surface visualisation utility (c) Monash University
   #status {
     color       : #f55;
     font-weight : bold;
-    float: left;
+    position: absolute;
+    top: 5%; left: 1%;
   }
 
   .dropdown {
@@ -112,6 +120,16 @@ Monash Web Surfer: web surface visualisation utility (c) Monash University
     padding: 4px;
   }
 
+  #container {
+    width : 100%;
+    height : 100%;
+  }
+
+  #canvas {
+    width : 100%;
+    height : 100%;
+  }
+
   #footing {
     position : absolute;
     background-color: #aaa;
@@ -122,6 +140,22 @@ Monash Web Surfer: web surface visualisation utility (c) Monash University
     font-size: 85%;
     margin     : 0;
     overflow  : hidden;
+  }
+
+  #nowebgl {
+    position:fixed;
+    width:400px;
+    top:50%; left:50%;
+    margin:-100px 0 0 -200px; /* [-(height/2)px 0 0 -(width/2)px] */
+    display:none; z-index: 100; border: none; 
+    padding: 5px; overflow-y: auto;
+    font-family  : monospace;
+    font-size  : 13px;
+    font-weight  : normal;
+    text-align  : center;
+    background  : #fff;
+    color  : #000;
+    opacity: 0.75;
   }
 
 /* Hide footer on phone screen */
@@ -187,9 +221,16 @@ Monash Web Surfer: web surface visualisation utility (c) Monash University
   </div>
   <div id="title">WebSurfer (initialising, please wait ...)</div>
 </div>
+<div id="nowebgl">
+Your browser does not seem to support <a href="http://khronos.org/webgl/wiki/Getting_a_WebGL_Implementation">WebGL</a>.<br />
+Find out how to get it <a href="http://get.webgl.org/">here</a><br />
+Click <a href="javascript:init(true);">here</a> to show the model anyway, it may be very slow to display and update.
+</div>
 <div id="status"></div>
 <div id="label" class="label">(no selection)</div>
-<div id="container"></div>
+<div id="container">
+<canvas id="canvas"></canvas>
+</div>
 <div id="footing">WebSurfer (initialising, please wait ...)</div>
 
 <script type="text/javascript">
@@ -323,22 +364,31 @@ Monash Web Surfer: web surface visualisation utility (c) Monash University
   }
 
   // init the scene
-  function init() {
+  function init(force) {
+    var container = document.getElementById('container');
+    var canvas = document.getElementById("canvas");
+    document.body.style.backgroundImage = "url(" + model + "/background.png)";
+
     //Detect renderer
     if ( Detector.webgl ) {
       renderer = new THREE.WebGLRenderer({
-        antialias    : true,
-        preserveDrawingBuffer  : true  // to allow screenshot
+        "canvas"    : canvas,
+        "alpha"    : true,
+        "antialias"    : true,
+        "preserveDrawingBuffer"  : true  // to allow screenshot
       });
-      //renderer.setClearColorHex( 0xf9f9f9, 1 );
-      var bgcol = new THREE.Color(0xf9f9f9);
-      bgcol.setRGB(background.x, background.y, background.z);
-      renderer.setClearColor(bgcol, 1);
+      renderer.setClearColor(0xf9f9f9);
     } else {
-      renderer = new THREE.CanvasRenderer();
+      if (!force) {
+        document.getElementById("nowebgl").style.display = "block";
+        return;
+      }
+      document.getElementById("nowebgl").style.display = "none";
+      renderer = new THREE.CanvasRenderer({"canvas"    : canvas});
+      //renderer.sortElements = false;
     }
     renderer.setSize( window.innerWidth, window.innerHeight );
-    document.getElementById('container').appendChild(renderer.domElement);
+    container.appendChild(renderer.domElement);
     document.getElementById("title").innerHTML = title_frag;
 
     //Create scene
@@ -359,6 +409,8 @@ Monash Web Surfer: web surface visualisation utility (c) Monash University
     controls.dynamicDampingFactor = 0.3;
     controls.keys = [ 65, 83, 68 ];
 
+    controls.addEventListener( 'change', render );
+
     if (views.length == 0) {
       //Default camera
       views.push({"name" : "Default", 
@@ -372,10 +424,10 @@ Monash Web Surfer: web surface visualisation utility (c) Monash University
     scene.add(camera);
 
     //Scroll wheel events
-    window.addEventListener('DOMMouseScroll', mousewheel, false);
-    window.addEventListener('mousewheel', mousewheel, false);
+    //window.addEventListener('DOMMouseScroll', mousewheel, false);
+    //window.addEventListener('mousewheel', mousewheel, false);
     //Redisplay on resize (clearing "prevcam" forces redraw)
-	  window.addEventListener('resize', function() {prevcam = "";}, false);
+	  window.addEventListener('resize', function() {prevcam = ""; controls.handleResize();}, false);
     //Click to select object
     container.addEventListener('click', onDocumentMouseDown, false );
 
@@ -419,7 +471,7 @@ Monash Web Surfer: web surface visualisation utility (c) Monash University
 
         //ref_obj[idx] = object; // save ref for later use, e.g. model tree switch in/out of render
           
-        // FOLLOWING REQUIRED FOR OBJECT INTERSECT TO WORK !!!
+        // Required for object intersect to work...
         // http://stackoverflow.com/questions/11205784/three-js-using-projector-and-ray-to-selected-a-vertex
         object.children[0].geometry.computeFaceNormals();
         var geometry = object.children[0].geometry;
@@ -434,7 +486,9 @@ Monash Web Surfer: web surface visualisation utility (c) Monash University
         if (nloaded == nobjs) {
           window.obj = ref_obj[idx];
           document.getElementById("status").style.display = "none";
+          document.getElementById("container").style.display = "block";
           applyCheckboxState();
+          document.body.style.backgroundImage = "";
 
           animate();
         } else {
@@ -474,44 +528,28 @@ Monash Web Surfer: web surface visualisation utility (c) Monash University
   //Animation loop
   function animate() {
     //Request animation loop
-    requestAnimationFrame( animate );
+    requestAnimationFrame(animate);
+
     //Update camera
     controls.update();
     //String representation of view parameters
-    var cam = JSON.stringify(camera.position) + camera.fov;
+    var cam = JSON.stringify(camera.position);
     //Compare to cached camera string and refresh only when changed
     //(This makes it easier on the CPU usage)
+    //console.log(cam + " ... " + prevcam);
     if (prevcam.length != cam.length || prevcam != cam) {
       //Update display
       headlight.position = (camera.position);
 
       render();
-      prevcam = JSON.stringify(camera.position) + camera.fov;
+
+      prevcam = JSON.stringify(camera.position);
     }
   }
 
   //Render the scene
   function render() {
     renderer.render( scene, camera );
-  }
-
-  function mousewheel(event) {
-    //Cross-bowser handling of eventdata 
-    var nDelta;
-    if (event.wheelDelta) //IE and Opera
-      nDelta= event.wheelDelta;
-    else if (event.detail)
-      nDelta= -event.detail; //Mozilla FireFox
-
-    //Normalise to single unit
-    var spin = nDelta > 0 ? 1 : -1;
-
-    var fovMAX = 160;
-    var fovMIN = 1;
-
-    camera.fov -= spin; // * 0.05;
-    camera.fov = Math.max( Math.min( camera.fov, fovMAX ), fovMIN );
-    camera.updateProjectionMatrix();
   }
 
   function toggleMenu(el) {
@@ -561,8 +599,8 @@ Monash Web Surfer: web surface visualisation utility (c) Monash University
     //console.log(vector.x, vector.y, vector.z);
     projector.unprojectVector(vector, camera);
 
-    var ray = new THREE.Ray(camera.position, 
-                             vector.subSelf( camera.position ).normalize());
+    var ray = new THREE.Raycaster(camera.position, 
+                             vector.sub( camera.position ).normalize());
     var intersects = ray.intersectObjects(ref_obj, true);
 
 //*
