@@ -1,13 +1,29 @@
 <!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <!-- 
+  Monash Web Surfer: web surface visualisation utility (c) Monash University 2014
 
-<!-- 
-Monash Web Surfer: web surface visualisation utility (c) Monash University
- - Provide model directory on URL, eg: index.html?model=mymodel
- - Will attempt to load mymodel/model.tok listing objects to load, description and parameters
- - Currently using THREE.js revision 52, will need some reworking if we want to update to the latest version
- - THREEx extensions provide optional additional features but can be removed
- - OBJLoader3.js is very slightly modified from original to provide additional parameter in callback
- - TrackballControls.js modified to provide primitive touchscreen support
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+ Info:
+  - Provide model directory on URL, eg: index.html?model=mymodel
+  - Will attempt to load mymodel/model.tok listing objects to load, description and parameters
+  - THREEx extensions provide optional additional features but can be removed
+  - OBJLoader3.js is very slightly modified from original to provide additional parameter in callback
+  - TrackballControls.js modified to provide primitive touchscreen support
 
  Updates, O.K: Dec 2013 / Jan 2014:
   - Views menu added to select additional views defined in model.tok
@@ -23,12 +39,10 @@ Monash Web Surfer: web surface visualisation utility (c) Monash University
   - New version of TrackballControls has support for touchscreen + wheel so stripped out our old code for this
   - Warning info and confirm when WebGL not available as CanvasRenderer can be extremely slow
   - Added background image display while loading, background.png in model directory
--->
 
-<html>
-<head>
+  -->
+
   <title>Monash Web Surfer - surface visualisation (O.L. Kaluza &amp; D.G. Barnes</title>
-  <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
   
   <script src="lib/three.min.js"></script>
@@ -158,18 +172,222 @@ Monash Web Surfer: web surface visualisation utility (c) Monash University
     opacity: 0.75;
   }
 
-/* Hide footer on phone screen */
-@media (max-width: 700px) {
-  #footing {display: none;}
-}
-
+  /* Hide footer on phone screen */
+  @media (max-width: 700px) {
+    #footing {display: none;}
+  }
   </style>
 
-  </head>
+</head>
 
 <body>
 
+<div id="heading"> 
+  <div class="dropdown" onclick="toggleMenu(this);">Groups
+    <div class="menu" onclick="event.stopPropagation();" id="groups"></div>
+  </div>
+  <div class="dropdown" onclick="toggleMenu(this);">Views
+    <div class="menu" onclick="event.stopPropagation();" id="views"></div>
+  </div>
+  <div id="title">WebSurfer (initialising, please wait ...)</div>
+</div>
+
+<div id="nowebgl">
+Your browser does not seem to support <a href="http://khronos.org/webgl/wiki/Getting_a_WebGL_Implementation">WebGL</a>.<br />
+Find out how to get it <a href="http://get.webgl.org/">here</a><br />
+Click <a href="javascript:init(true);">here</a> to show the model anyway, it may be very slow to display and update.
+</div>
+
+<div id="status"></div>
+<div id="label" class="label">(no selection)</div>
+
+<div id="container">
+  <canvas id="canvas"></canvas>
+</div>
+
+<div id="footing">WebSurfer (initialising, please wait ...)</div>
+
 <script type="text/javascript">
+  // Global vars
+  var model = getUrlVars()["model"],
+      ObjInfo = makeStruct("name groups filename r g b a"),
+      objs = [],
+      GrpInfo = makeStruct("name id init"),
+      grps = [],
+      views = [],
+      title_frag = "WebSurfer",
+      footer_txt = "WebSurfer",
+      PosInfo = makeStruct("x y z"),
+      background = new PosInfo(0.976, 0.976, 0.976),
+      ambientLight = new PosInfo(0.25,0.25,0.25),
+      headLight = new PosInfo(0.67,0.67,0.67),
+      prevcam = "",  //Save camera to detect if redraw required
+      projector = new THREE.Projector(),
+      menu = null,
+      scene, renderer, camera, controls, headlight,
+      ref_obj = [];
+
+  //Start loading the model...
+  loadModel();
+
+  function loadModel() {
+    var model_tok = model + "/model.tok";
+    var tokFile = new XMLHttpRequest();
+    tokFile.overrideMimeType('text/plain');
+    tokFile.onreadystatechange = function() {
+      if (tokFile.readyState == 4) {
+        if (tokFile.status == 200 || tokFile.status == 0) {
+          //Document found on server, ready to parse...
+          parseTokFile(tokFile.responseText);
+          document.getElementById("status").innerHTML = "(loading ... )";
+          document.getElementById("footing").innerHTML = footer_txt;
+          //Read user-defined groups/views then load the scene
+          initGroups();
+          initViews();
+          init();
+        }
+      }
+    }
+
+    tokFile.open("GET", model_tok, true);
+    tokFile.send(null);
+  }
+
+  // init the scene
+  function init(force) {
+    var container = document.getElementById('container');
+    //Use existing canvas element rather than letting Three.js create one
+    var canvas = document.getElementById("canvas");
+    //Use a pre-rendered background if provided
+    document.body.style.backgroundImage = "url(" + model + "/background.png)";
+
+    //Detect renderer
+    if (Detector.webgl) {
+      renderer = new THREE.WebGLRenderer({
+        "canvas"    : canvas,
+        "alpha"    : true,
+        "antialias"    : true,
+        "preserveDrawingBuffer"  : true  // to allow screenshot
+      });
+      renderer.setClearColor(0xf9f9f9);
+    } else {
+      if (!force) {
+        document.getElementById("nowebgl").style.display = "block";
+        return;
+      }
+      document.getElementById("nowebgl").style.display = "none";
+      renderer = new THREE.CanvasRenderer({"canvas"    : canvas});
+    }
+    renderer.setSize( window.innerWidth, window.innerHeight );
+    document.getElementById("title").innerHTML = title_frag;
+
+    //Create scene
+    scene = new THREE.Scene();
+
+    var fov = 40; //Field of view
+    camera = new THREE.PerspectiveCamera(fov, window.innerWidth / window.innerHeight, 1, 10000);
+
+    //Camera contol
+    var container = document.getElementById("container");
+    controls = new THREE.TrackballControls(camera, container);
+    controls.rotateSpeed = 1.0;
+    controls.zoomSpeed = 1.2;
+    controls.panSpeed = 0.8;
+    controls.noZoom = false;
+    controls.noPan = false;
+    controls.staticMoving = true;
+    controls.dynamicDampingFactor = 0.3;
+    controls.keys = [ 65, 83, 68 ];
+
+    if (views.length == 0) {
+      //Default camera
+      views.push({"name" : "Default", 
+                  "position" : [0,0,1500],
+                  "lookat" : [0,0,0],
+                  "up" : [0,1,0]
+                 });
+    }
+
+    setCamera(0);
+    scene.add(camera);
+
+    //Scroll wheel events
+    //window.addEventListener('DOMMouseScroll', mousewheel, false);
+    //window.addEventListener('mousewheel', mousewheel, false);
+    //Redisplay on resize (clearing "prevcam" forces redraw)
+	  window.addEventListener('resize', function() {prevcam = ""; controls.handleResize();}, false);
+    //Click to select object
+    container.addEventListener('click', onDocumentMouseDown, false );
+
+    //Window resize support
+    THREEx.WindowResize.bind(renderer, camera);
+    //'p' to make screenshot
+    THREEx.Screenshot.bindKey(renderer);
+    //'f' to go fullscreen where supported
+    if (THREEx.FullScreen.available())
+      THREEx.FullScreen.bindKey();
+
+    //Lighting... ambient and headlight
+    var ambcol = new THREE.Color(0);
+    ambcol.setRGB(ambientLight.x, ambientLight.y, ambientLight.z);
+    var ambient = new THREE.AmbientLight( ambcol.getHex() );
+    scene.add(ambient);
+
+    var headcol = new THREE.Color(0);
+    headcol.setRGB(headLight.x, headLight.y, headLight.z);
+    headlight = new THREE.PointLight( headcol.getHex() );
+    headlight.position = camera.position;
+    scene.add(headlight);
+
+    //Add objects to scene
+    var loader = new THREE.OBJLoader();
+    var nloaded = 0;
+    var nobjs = objs.length;
+
+    for (var i = 0; i < nobjs; i++) {
+      var callback = function(object, idx) {
+        //Setup the loaded object properties and add to the scene
+
+        object.children[0].material.color.setRGB(objs[idx].r, objs[idx].g, objs[idx].b);
+
+        if (objs[idx].a < 0.999) {
+          object.children[0].material.transparent = true;
+          object.children[0].material.opacity = objs[idx].a;
+        } else {
+          object.children[0].material.transparent = false;
+          object.children[0].material.opacity = 1.0;
+        }
+          
+        // Required for object intersect to work...
+        // http://stackoverflow.com/questions/11205784/three-js-using-projector-and-ray-to-selected-a-vertex
+        object.children[0].geometry.computeFaceNormals();
+        var geometry = object.children[0].geometry;
+        //THREE.GeometryUtils.center(geometry);
+        //var material = new THREE.MeshLambertMaterial({color: 0xffaa77, shading: THREE.FlatShading, vertexColors: THREE.VertexColors });
+
+        // save ref for later use, e.g. model tree switch in/out of render
+        ref_obj[idx] = new THREE.Mesh(geometry, object.children[0].material);
+
+        scene.add( ref_obj[idx] );
+
+        nloaded += 1;
+        if (nloaded == nobjs) {
+          window.obj = ref_obj[idx];
+          document.getElementById("status").style.display = "none";
+          document.getElementById("container").style.display = "block";
+          applyCheckboxState();
+          document.body.style.backgroundImage = "";
+
+          animate();
+        } else {
+          document.getElementById("status").innerHTML = "(loaded " + nloaded + "/" + nobjs + " ... )";
+        }  
+      }
+
+      //Load the object, passing index so can be passed to callback
+      loader.load(objs[i].filename, callback, i);
+    }
+  }
 
   function getUrlVars() {
     var vars = {};
@@ -178,9 +396,6 @@ Monash Web Surfer: web surface visualisation utility (c) Monash University
     });
     return vars;
   }
-
-  var model = getUrlVars()["model"];
-  var model_tok = model + "/model.tok";
 
   function makeStruct(names) {
     var names = names.split(' ');
@@ -192,70 +407,6 @@ Monash Web Surfer: web surface visualisation utility (c) Monash University
     }
     return constructor;
   }
-
-  // get global vars in place before custom "model.js" loaded...
-  var ObjInfo = makeStruct("name groups filename r g b a");
-  var objs = [];
-  var GrpInfo = makeStruct("name id init");
-  var grps = [];
-  var views = [];
-  var title_frag = "WebSurfer";
-  var footer_txt = "WebSurfer";
-  var PosInfo = makeStruct("x y z");
-  var background = new PosInfo(0.976, 0.976, 0.976);
-  //OK: Reduced ambient and increased directional light slightly
-  // for greater contrast and highlights
-  var ambientLight = new PosInfo(0.25,0.25,0.25);
-  var headLight = new PosInfo(0.67,0.67,0.67);
-  var prevcam = "";  //Save camera to detect if redraw required
-  var projector = new THREE.Projector();
-  var menu = null;
-</script>
-
-<div id="heading"> 
-  <div class="dropdown" onclick="toggleMenu(this);">Groups
-    <div class="menu" onclick="event.stopPropagation();" id="groups"></div>
-  </div>
-  <div class="dropdown" onclick="toggleMenu(this);">Views
-    <div class="menu" onclick="event.stopPropagation();" id="views"></div>
-  </div>
-  <div id="title">WebSurfer (initialising, please wait ...)</div>
-</div>
-<div id="nowebgl">
-Your browser does not seem to support <a href="http://khronos.org/webgl/wiki/Getting_a_WebGL_Implementation">WebGL</a>.<br />
-Find out how to get it <a href="http://get.webgl.org/">here</a><br />
-Click <a href="javascript:init(true);">here</a> to show the model anyway, it may be very slow to display and update.
-</div>
-<div id="status"></div>
-<div id="label" class="label">(no selection)</div>
-<div id="container">
-<canvas id="canvas"></canvas>
-</div>
-<div id="footing">WebSurfer (initialising, please wait ...)</div>
-
-<script type="text/javascript">
-  var scene, renderer, camera, controls;
-  var headlight;
-  var obj;
-  var ref_obj = [];
-  var plane;
-
-  var tokFile = new XMLHttpRequest();
-  tokFile.overrideMimeType('text/plain');
-  tokFile.onreadystatechange = function() {
-    if (tokFile.readyState == 4) {  // Makes sure the document is ready to parse.
-      if (tokFile.status == 200 || tokFile.status == 0) {  // Makes sure it's found the file.
-        parseTokFile(tokFile.responseText);
-        document.getElementById("status").innerHTML = "(loading ... )";
-        document.getElementById("footing").innerHTML = footer_txt;
-        initGroups();
-        initViews();
-        init();
-      }
-    }
-  }
-  tokFile.open("GET", model_tok, true);
-  tokFile.send(null);
 
   function parseTuple(x_str,y_str,z_str, as_array) {
       var x = parseFloat(x_str);
@@ -330,6 +481,7 @@ Click <a href="javascript:init(true);">here</a> to show the model anyway, it may
   }
 
   function addMenuItem(parentid, type, id, name, text, checked, onclick) {
+    //Dynamically add items to the menus
     var container = document.getElementById(parentid);
     var item = document.createElement("input");
     item.id = id;
@@ -350,6 +502,7 @@ Click <a href="javascript:init(true);">here</a> to show the model anyway, it may
   }
 
   // apply the checkbox state to the model
+  // this shows/hides defined groups of objects
   function applyCheckboxState() {
     var i, j;
     for (j = 0; j < grps.length; j++) {
@@ -363,162 +516,16 @@ Click <a href="javascript:init(true);">here</a> to show the model anyway, it may
     }
   }
 
-  // init the scene
-  function init(force) {
-    var container = document.getElementById('container');
-    var canvas = document.getElementById("canvas");
-    document.body.style.backgroundImage = "url(" + model + "/background.png)";
-
-    //Detect renderer
-    if ( Detector.webgl ) {
-      renderer = new THREE.WebGLRenderer({
-        "canvas"    : canvas,
-        "alpha"    : true,
-        "antialias"    : true,
-        "preserveDrawingBuffer"  : true  // to allow screenshot
-      });
-      renderer.setClearColor(0xf9f9f9);
-    } else {
-      if (!force) {
-        document.getElementById("nowebgl").style.display = "block";
-        return;
-      }
-      document.getElementById("nowebgl").style.display = "none";
-      renderer = new THREE.CanvasRenderer({"canvas"    : canvas});
-      //renderer.sortElements = false;
-    }
-    renderer.setSize( window.innerWidth, window.innerHeight );
-    document.getElementById("title").innerHTML = title_frag;
-
-    //Create scene
-    scene = new THREE.Scene();
-
-    var fov = 40; //Modify this to adjust initial zoom level
-    camera = new THREE.PerspectiveCamera(fov, window.innerWidth / window.innerHeight, 1, 10000);
-
-    //Camera contol
-    var container = document.getElementById("container");
-    controls = new THREE.TrackballControls(camera, container);
-    controls.rotateSpeed = 1.0;
-    controls.zoomSpeed = 1.2;
-    controls.panSpeed = 0.8;
-    controls.noZoom = false;
-    controls.noPan = false;
-    controls.staticMoving = true;
-    controls.dynamicDampingFactor = 0.3;
-    controls.keys = [ 65, 83, 68 ];
-
-    controls.addEventListener( 'change', render );
-
-    if (views.length == 0) {
-      //Default camera
-      views.push({"name" : "Default", 
-                  "position" : [0,0,1500],
-                  "lookat" : [0,0,0],
-                  "up" : [0,1,0]
-                 });
-    }
-
-    setCamera(0);
-    scene.add(camera);
-
-    //Scroll wheel events
-    //window.addEventListener('DOMMouseScroll', mousewheel, false);
-    //window.addEventListener('mousewheel', mousewheel, false);
-    //Redisplay on resize (clearing "prevcam" forces redraw)
-	  window.addEventListener('resize', function() {prevcam = ""; controls.handleResize();}, false);
-    //Click to select object
-    container.addEventListener('click', onDocumentMouseDown, false );
-
-    //Window resize support
-    THREEx.WindowResize.bind(renderer, camera);
-    //'p' to make screenshot
-    THREEx.Screenshot.bindKey(renderer);
-    //'f' to go fullscreen where supported
-    if (THREEx.FullScreen.available())
-      THREEx.FullScreen.bindKey();
-
-    //Add objects to scene
-    var ambcol = new THREE.Color(0);
-    ambcol.setRGB(ambientLight.x, ambientLight.y, ambientLight.z);
-    var ambient = new THREE.AmbientLight( ambcol.getHex() );
-    scene.add(ambient);
-
-    var headcol = new THREE.Color(0);
-    headcol.setRGB(headLight.x, headLight.y, headLight.z);
-    headlight = new THREE.PointLight( headcol.getHex() );
-    headlight.position = camera.position;
-    scene.add(headlight);
-
-    var loader = new THREE.OBJLoader();
-    var nloaded = 0;
-    var nobjs = objs.length;
-
-    for (var i = 0; i < nobjs; i++) {
-      var callback = function(object, idx) {
-
-        object.children[0].material.color.setRGB(objs[idx].r, objs[idx].g, objs[idx].b);
-
-        if (objs[idx].a < 0.999) {
-          object.children[0].material.transparent = true;
-          object.children[0].material.opacity = objs[idx].a;
-        } else {
-          object.children[0].material.transparent = false;
-          object.children[0].material.opacity = 1.0;
-        }
-        //  object.children[0].material.side = THREE.DoubleSide;
-
-        //ref_obj[idx] = object; // save ref for later use, e.g. model tree switch in/out of render
-          
-        // Required for object intersect to work...
-        // http://stackoverflow.com/questions/11205784/three-js-using-projector-and-ray-to-selected-a-vertex
-        object.children[0].geometry.computeFaceNormals();
-        var geometry = object.children[0].geometry;
-        //THREE.GeometryUtils.center(geometry);
-        //var material = new THREE.MeshLambertMaterial({color: 0xffaa77, shading: THREE.FlatShading, vertexColors: THREE.VertexColors });
-
-        ref_obj[idx] = new THREE.Mesh(geometry, object.children[0].material);
-
-        scene.add( ref_obj[idx] );
-
-        nloaded += 1;
-        if (nloaded == nobjs) {
-          window.obj = ref_obj[idx];
-          document.getElementById("status").style.display = "none";
-          document.getElementById("container").style.display = "block";
-          applyCheckboxState();
-          document.body.style.backgroundImage = "";
-
-          animate();
-        } else {
-          document.getElementById("status").innerHTML = "(loaded " + nloaded + "/" + nobjs + " ... )";
-        }  
-      }
-
-      //Load the object, passing index so can be passed to callback
-      loader.load(objs[i].filename, callback, i);
-    }
-
-  }
-
   function setCamera(view_id) {
     var v = views[view_id];
     // ensure camera.up is orthog to lookat-position
     var dir = new THREE.Vector3(v.lookat[0] - v.position[0],
                                 v.lookat[1] - v.position[1],
                                 v.lookat[2] - v.position[2]);
-    /*var iup = new THREE.Vector3(v.up[0], v.up[1], v.up[2]);
-    if (iup.lengthSq() < 0.99) {
-      iup.set(0,1,0);
-    }
-    var rgt = new THREE.Vector3();
-    rgt.cross(dir, iup);
-    iup.cross(rgt, dir);*/
 
     //Add camera
     camera.position.set(v.position[0], v.position[1], v.position[2]);
     camera.up.set(v.up[0], v.up[1], v.up[2]);
-    //camera.up.set(iup[0], iup[1], iup[2]);
 
     // N.B. point to look at / rotate about is PER MODEL
     controls.target.set(v.lookat[0], v.lookat[1], v.lookat[2]);
@@ -534,8 +541,7 @@ Click <a href="javascript:init(true);">here</a> to show the model anyway, it may
     //String representation of view parameters
     var cam = JSON.stringify(camera.position);
     //Compare to cached camera string and refresh only when changed
-    //(This makes it easier on the CPU usage)
-    //console.log(cam + " ... " + prevcam);
+    //(This makes it lighter on the CPU)
     if (prevcam.length != cam.length || prevcam != cam) {
       //Update display
       headlight.position = (camera.position);
@@ -552,6 +558,7 @@ Click <a href="javascript:init(true);">here</a> to show the model anyway, it may
   }
 
   function toggleMenu(el) {
+    //Click to display/hide a menu, also hide other open menus
     if (el.childNodes.length < 2) return;
     var child = el.childNodes[1];
     if (menu) {
@@ -573,7 +580,6 @@ Click <a href="javascript:init(true);">here</a> to show the model anyway, it may
   }
 
   function onDocumentMouseDown( event ) {
-    //event.preventDefault();
     //Get mouse coords relative to canvas
     var x;
     var y;
@@ -587,7 +593,6 @@ Click <a href="javascript:init(true);">here</a> to show the model anyway, it may
     } 
     x -= renderer.domElement.offsetLeft;
     y -= renderer.domElement.offsetTop;
-    //console.log(x, y, renderer.domElement.width, renderer.domElement.height);
 
     var vector = new THREE.Vector3(
         ( x / renderer.domElement.width ) * 2 - 1,
@@ -595,15 +600,12 @@ Click <a href="javascript:init(true);">here</a> to show the model anyway, it may
         1.0
     );
     
-    //console.log(vector.x, vector.y, vector.z);
     projector.unprojectVector(vector, camera);
 
-    var ray = new THREE.Raycaster(camera.position, 
-                             vector.sub( camera.position ).normalize());
+    var ray = new THREE.Raycaster(camera.position, vector.sub(camera.position).normalize());
     var intersects = ray.intersectObjects(ref_obj, true);
 
-//*
-    //This will only display the first intersected object
+    //This will display the first intersected object
     var found = false;
     var found_id = -1;
     if (intersects.length > 0) {
@@ -619,43 +621,13 @@ Click <a href="javascript:init(true);">here</a> to show the model anyway, it may
     }
 
     if (found) {
-      //console.log("Clicked on ", objs[found_id].name);
       var label = document.getElementById("label");
       label.innerHTML = objs[found_id].name;
       label.style.display = "inline";
+      //Display label for 4 seconds or until another element picked
       if (label.timer) clearTimeout(label.timer);
       label.timer = setTimeout(function() {label.style.display = 'none';}, 4000);
     }
-/*/
-
-    //Modified to list all objects intersected at click position
-    for (var x = 0; x < ref_obj.length; x++)
-      objs[x].picked = false;
-
-    if (intersects.length > 0) {
-      for (var z = 0; z < intersects.length; z++) {
-        var z_id = intersects[z].object.id;
-        for (var x = 0; x < ref_obj.length; x++) {
-          if (ref_obj[x].visible && ref_obj[x].id == z_id) {
-            objs[x].picked = true;
-          }
-        }
-      }
-
-      var label = document.getElementById("label");
-      label.style.display = "none";
-      label.innerHTML = "";
-      for (var x = 0; x < ref_obj.length; x++) {
-        if (objs[x].picked) {
-          //console.log("Clicked on ", objs[x].name);
-          label.innerHTML += objs[x].name + "<br>";
-          label.style.display = "inline";
-        }
-      }
-      if (label.timer) clearTimeout(label.timer);
-      label.timer = setTimeout(function() {label.style.display = 'none';}, 4000);
-    }
-//*/
   }
 
 </script>
