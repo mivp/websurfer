@@ -378,6 +378,7 @@ Click <a href="javascript:init(true);">here</a> to show the model anyway, it may
           applyCheckboxState();
           document.body.style.backgroundImage = "";
 
+          render(); //Initial frame to workaround partial rendering bug on some machines
           animate();
         } else {
           document.getElementById("status").innerHTML = "(loaded " + nloaded + "/" + nobjs + " ... )";
